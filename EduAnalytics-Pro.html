@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EduAnalytics Pro | Student Performance System</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js"></script>
+    <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+    <script src="https://unpkg.com/recharts@2.10.3/umd/Recharts.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@0.263.1/dist/umd/lucide.min.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body { 
+            background-color: #f1f5f9; 
+            font-family: 'Inter', sans-serif; 
+            color: #0f172a;
+            -webkit-font-smoothing: antialiased;
+        }
+        .glass-card {
+            background: white;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        /* Spinner Animation */
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .spinner { animation: spin 1s linear infinite; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // --- 1. SETUP & UTILITIES ---
+        const { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } = window.Recharts;
+        const { useState, useEffect, createContext, useContext, useRef } = React;
+        const { motion, AnimatePresence } = window.Motion;
+
+        // --- 2. FIXED ICON COMPONENT ---
+        const Icon = ({ name, size = 18, className = "" }) => {
+            const spanRef = useRef(null);
+            useEffect(() => {
+                if (window.lucide && spanRef.current) {
+                    window.lucide.createIcons({
+                        root: spanRef.current,
+                        nameAttr: 'data-lucide',
+                        attrs: { width: size, height: size, class: `lucide lucide-${name} ${className}` }
+                    });
+                }
+            }, [name, size, className]);
+            return <span ref={spanRef} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} dangerouslySetInnerHTML={{ __html: `<i data-lucide="${name}"></i>` }} />;
+        };
+
+        // --- 3. CONFIGURATION ---
+        const DEFAULT_STUDENT = {
+            roll_no: "",
+            name: "New Student",
+            sgpa_history: [7.5, 7.8], 
+            backlogs: 0,
+            attendance: 85,
+            activities: [],
+        };
+
+        const calculateCGPA = (history) => {
+            if (!history || history.length === 0) return 0;
+            const sum = history.reduce((a, b) => a + b, 0);
+            return parseFloat((sum / history.length).toFixed(2));
+        };
+
+        const determineRisk = (backlogs, cgpa) => {
+            if (backlogs >= 2 || cgpa < 7.0) 
+                return { level: "High Risk", color: "text-red-600", bg: "bg-red-50", border: "border-red-200", icon: "alert-triangle" };
+            if (backlogs >= 1 || cgpa < 7.8) 
+                return { level: "Moderate Risk", color: "text-amber-600", bg: "bg-amber-50", border: "border-amber-200", icon: "alert-circle" };
+            return { level: "Low Risk", color: "text-emerald-600", bg: "bg-emerald-50", border: "border-emerald-200", icon: "check-circle" };
+        };
+
+        // --- 4. DATA CONTEXT ---
+        const DBContext = createContext();
+
+        const generateSeedData = () => {
+            const data = {};
+            // EXACT DATA FROM EXCEL SCREENSHOT
+            const excelData = [
+                { roll: 101, name: "Rahul", s1: 7.8, s2: 8.0, back: 0, act: ["Cricket", "Coding Club"] },
+                { roll: 102, name: "Priya", s1: 7.8, s2: 7.2, back: 1, act: ["Dance", "Drama Club"] },
+                { roll: 103, name: "Amit", s1: 9.2, s2: 7.8, back: 0, act: ["Robotics", "Math Club"] },
+                { roll: 104, name: "Sneha", s1: 6.9, s2: 8.8, back: 2, act: ["Music", "NSS"] },
+                { roll: 105, name: "Prince", s1: 7.9, s2: 8.8, back: 0, act: ["Mobile Game", "Music Club"] },
+                { roll: 106, name: "Kiran", s1: 8.1, s2: 7.7, back: 0, act: ["Football", "Photography"] },
+                { roll: 107, name: "Ravi", s1: 7.3, s2: 8.2, back: 1, act: ["Basketball", "Science Club"] },
+                { roll: 108, name: "Pooja", s1: 8.5, s2: 7.9, back: 0, act: ["Debate", "Drama Club"] },
+                { roll: 109, name: "Sahil", s1: 6.8, s2: 7.5, back: 2, act: ["Cricket", "Music"] },
+                { roll: 110, name: "Neha", s1: 8.0, s2: 8.3, back: 0, act: ["Dance", "Coding Club"] },
+                { roll: 111, name: "Arjun", s1: 7.4, s2: 7.8, back: 0, act: ["Football", "Math Club"] },
+                { roll: 112, name: "Meera", s1: 8.2, s2: 8.0, back: 0, act: ["Photography", "Robotics"] },
+                { roll: 113, name: "Kavita", s1: 7.6, s2: 8.4, back: 1, act: ["Drama", "Debate"] },
+                { roll: 114, name: "Vikram", s1: 8.7, s2: 8.1, back: 0, act: ["Music", "Science Club"] },
+                { roll: 115, name: "Deepa", s1: 7.5, s2: 7.9, back: 1, act: ["Dance", "Photography"] },
+                { roll: 116, name: "Anil", s1: 8.3, s2: 8.5, back: 0, act: ["Football", "Coding Club"] },
+                { roll: 117, name: "Sunita", s1: 7.1, s2: 7.8, back: 2, act: ["Drama", "Math Club"] },
+                { roll: 118, name: "Manoj", s1: 7.9, s2: 8.2, back: 0, act: ["Cricket", "NSS"] },
+                { roll: 119, name: "Geeta", s1: 8.4, s2: 8.0, back: 0, act: ["Debate", "Science Club"] },
+                { roll: 120, name: "Raj", s1: 6.7, s2: 7.2, back: 3, act: ["Basketball", "Drama Club"] },
+                { roll: 121, name: "Swati", s1: 7.8, s2: 8.1, back: 0, act: ["Dance", "Robotics"] },
+                { roll: 122, name: "Nikhil", s1: 8.0, s2: 8.4, back: 0, act: ["Music", "Coding Club"] },
+                { roll: 123, name: "Tina", s1: 7.5, s2: 7.7, back: 1, act: ["Photography", "Drama"] },
+                { roll: 124, name: "Harish", s1: 7.9, s2: 8.6, back: 0, act: ["Football", "Math Club"] },
+                { roll: 125, name: "Asha", s1: 8.1, s2: 8.5, back: 0, act: ["Debate", "Science Club"] },
+                { roll: 126, name: "Yash", s1: 7.4, s2: 7.9, back: 1, act: ["Cricket", "Photography"] },
+                { roll: 127, name: "Leela", s1: 8.3, s2: 8.2, back: 0, act: ["Dance", "Drama Club"] },
+                { roll: 128, name: "Suresh", s1: 6.9, s2: 7.5, back: 2, act: ["Robotics", "Music"] },
+                { roll: 129, name: "Rekha", s1: 8.0, s2: 8.4, back: 0, act: ["Drama", "Science Club"] },
+                { roll: 130, name: "Ajay", s1: 7.6, s2: 7.8, back: 1, act: ["Football", "Coding Club"] },
+                { roll: 131, name: "Kusum", s1: 7.8, s2: 8.3, back: 0, act: ["Dance", "Debate"] },
+                { roll: 132, name: "Ramesh", s1: 8.2, s2: 8.1, back: 0, act: ["Photography", "Math Club"] },
+                { roll: 133, name: "Seema", s1: 7.9, s2: 8.4, back: 0, act: ["Drama", "NSS"] },
+                { roll: 134, name: "Naresh", s1: 8.4, s2: 8.0, back: 0, act: ["Football", "Science Club"] },
+                { roll: 135, name: "Pinky", s1: 7.5, s2: 7.7, back: 1, act: ["Dance", "Photography"] },
+                { roll: 136, name: "Vinod", s1: 8.3, s2: 8.6, back: 0, act: ["Music", "Robotics"] },
+                { roll: 137, name: "Anita", s1: 7.1, s2: 7.8, back: 2, act: ["Drama", "Math Club"] },
+                { roll: 138, name: "Lokesh", s1: 7.9, s2: 8.2, back: 0, act: ["Cricket", "NSS"] },
+                { roll: 139, name: "Bhavna", s1: 8.4, s2: 8.0, back: 0, act: ["Debate", "Science Club"] },
+                { roll: 140, name: "Kamal", s1: 6.7, s2: 7.2, back: 3, act: ["Basketball", "Drama Club"] }
+            ];
+
+            excelData.forEach(student => {
+                let attendance;
+                if (student.back >= 3) attendance = 60 + Math.floor(Math.random() * 5); 
+                else if (student.back === 2) attendance = 65 + Math.floor(Math.random() * 10);
+                else if (student.back === 1) attendance = 70 + Math.floor(Math.random() * 15);
+                else attendance = 80 + Math.floor(Math.random() * 20);
+                if (attendance > 100) attendance = 100;
+
+                data[student.roll] = {
+                    ...DEFAULT_STUDENT,
+                    roll_no: student.roll.toString(),
+                    name: student.name,
+                    sgpa_history: [student.s1, student.s2],
+                    backlogs: student.back,
+                    attendance: attendance,
+                    activities: student.act
+                };
+            });
+            return data;
+        };
+
+        const DBProvider = ({ children }) => {
+            const [db, setDb] = useState({});
+            const [user, setUser] = useState(null);
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [selectedStudentId, setSelectedStudentId] = useState(null);
+
+            useEffect(() => {
+                const saved = localStorage.getItem('edu_analytics_v7'); 
+                if (saved) setDb(JSON.parse(saved));
+                else { const seed = generateSeedData(); setDb(seed); localStorage.setItem('edu_analytics_v7', JSON.stringify(seed)); }
+            }, []);
+
+            const updateStudent = (roll, data) => {
+                const newDb = { ...db, [roll]: { ...db[roll], ...data } };
+                setDb(newDb);
+                localStorage.setItem('edu_analytics_v7', JSON.stringify(newDb));
+                if (user && user.roll_no === roll) {
+                    const merged = { ...user, ...data };
+                    const cgpa = calculateCGPA(merged.sgpa_history);
+                    const risk = determineRisk(merged.backlogs, cgpa);
+                    setUser({ ...merged, cgpa, risk });
+                }
+            };
+
+            // NEW: Bulk Add Function for Excel Upload
+            const bulkAddStudents = (newStudents) => {
+                const newDb = { ...db, ...newStudents };
+                setDb(newDb);
+                localStorage.setItem('edu_analytics_v7', JSON.stringify(newDb));
+            };
+
+            const login = (roll) => {
+                setActiveTab('dashboard');
+                if (roll === '100') { setUser({ roll_no: '100', name: 'Administrator', isAdmin: true }); return true; }
+                if (db[roll]) {
+                    const s = db[roll];
+                    const cgpa = calculateCGPA(s.sgpa_history);
+                    const risk = determineRisk(s.backlogs, cgpa);
+                    setUser({ ...s, cgpa, risk });
+                    return true;
+                }
+                return false;
+            };
+
+            return (
+                <DBContext.Provider value={{ db, user, login, logout: () => setUser(null), updateStudent, bulkAddStudents, activeTab, setActiveTab, selectedStudentId, setSelectedStudentId }}>
+                    {children}
+                </DBContext.Provider>
+            );
+        };
+
+        // --- 5. COMPONENTS ---
+
+        const Sidebar = () => {
+            const { user, logout, activeTab, setActiveTab } = useContext(DBContext);
+            const [isOpen, setIsOpen] = useState(false);
+
+            const NavItem = ({ id, icon, label }) => (
+                <button 
+                    onClick={() => { setActiveTab(id); setIsOpen(false); }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}
+                >
+                    <Icon name={icon} size={20} /> {label}
+                </button>
+            );
+
+            return (
+                <>
+                    <div className="md:hidden flex items-center justify-between p-4 bg-white border-b sticky top-0 z-20">
+                        <div className="flex items-center gap-2 font-bold text-indigo-600"><Icon name="graduation-cap" /> EduAnalytics</div>
+                        <button onClick={() => setIsOpen(!isOpen)}><Icon name={isOpen ? "x" : "menu"} /></button>
+                    </div>
+
+                    <motion.aside 
+                        initial={false} animate={{ x: isOpen ? 0 : 0 }}
+                        className={`fixed md:sticky top-0 left-0 h-screen w-64 bg-white border-r z-30 flex flex-col transition-transform duration-300 ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
+                    >
+                        <div className="p-6 border-b hidden md:flex items-center gap-2 font-bold text-xl text-slate-800">
+                            <div className="bg-indigo-600 text-white p-2 rounded-lg"><Icon name="graduation-cap" size={20} /></div>
+                            EduAnalytics
+                        </div>
+                        <div className="flex-1 p-4 space-y-2">
+                            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 px-2">Main Menu</div>
+                            <NavItem id="dashboard" icon="layout-dashboard" label="Dashboard" />
+                            <NavItem id="schedule" icon="calendar" label="Schedule" />
+                            <NavItem id="reports" icon="file-bar-chart" label="Reports" />
+                        </div>
+                        <div className="p-4 border-t">
+                            <div className="flex items-center gap-3 mb-4 px-2">
+                                <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600">{user.name.charAt(0)}</div>
+                                <div><div className="text-sm font-bold text-slate-800">{user.name}</div><div className="text-xs text-slate-500">{user.isAdmin ? "Admin" : `ID: ${user.roll_no}`}</div></div>
+                            </div>
+                            <button onClick={logout} className="w-full flex items-center justify-center gap-2 px-4 py-2 border text-slate-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors text-sm font-medium"><Icon name="log-out" size={16} /> Sign Out</button>
+                        </div>
+                    </motion.aside>
+                    {isOpen && <div className="fixed inset-0 bg-black/20 z-20 md:hidden" onClick={() => setIsOpen(false)} />}
+                </>
+            );
+        };
+
+        const ScheduleView = ({ isBacklog }) => {
+            const classes = isBacklog 
+                ? [
+                    { time: "09:00 AM", subject: "Remedial Mathematics", type: "Backlog Recovery", loc: "Room 301", color: "border-red-500" },
+                    { time: "11:00 AM", subject: "Data Structures", type: "Regular", loc: "Lab 2", color: "border-indigo-500" },
+                    { time: "02:00 PM", subject: "Academic Counseling", type: "Mentorship", loc: "Faculty Cabin", color: "border-amber-500" }
+                  ]
+                : [
+                    { time: "09:00 AM", subject: "Advanced Algorithms", type: "Lecture", loc: "Hall A", color: "border-emerald-500" },
+                    { time: "11:00 AM", subject: "Machine Learning Lab", type: "Practical", loc: "Lab 1", color: "border-indigo-500" },
+                    { time: "03:00 PM", subject: "Coding Club Meet", type: "Activity", loc: "Auditorium", color: "border-violet-500" }
+                  ];
+
+            return (
+                <div className="space-y-6 animate-fade-in">
+                    <h2 className="text-2xl font-bold text-slate-900">Weekly Schedule</h2>
+                    <div className="grid gap-4">
+                        {classes.map((c, i) => (
+                            <div key={i} className={`glass-card p-5 rounded-xl border-l-4 ${c.color} flex flex-col md:flex-row justify-between items-start md:items-center`}>
+                                <div>
+                                    <div className="text-sm font-bold text-slate-500">{c.time}</div>
+                                    <div className="text-lg font-bold text-slate-800">{c.subject}</div>
+                                    <div className="text-xs text-slate-500">{c.type} • {c.loc}</div>
+                                </div>
+                                <button className="mt-3 md:mt-0 px-4 py-2 bg-slate-50 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-100">View Details</button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        const ReportsView = ({ db }) => {
+            const students = Object.values(db);
+            const riskData = [
+                { name: "Low", value: students.filter(s=>s.backlogs===0).length, color: "#10b981" },
+                { name: "Medium", value: students.filter(s=>s.backlogs===1).length, color: "#f59e0b" },
+                { name: "High", value: students.filter(s=>s.backlogs>=2).length, color: "#ef4444" }
+            ];
+
+            return (
+                <div className="space-y-6 animate-fade-in">
+                    <h2 className="text-2xl font-bold text-slate-900">Department Reports</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="glass-card p-6 rounded-2xl">
+                            <h3 className="font-bold text-slate-700 mb-4">Risk Distribution</h3>
+                            <div className="h-64">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <PieChart>
+                                        <Pie data={riskData} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                                            {riskData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+                                        </Pie>
+                                        <Tooltip />
+                                    </PieChart>
+                                </ResponsiveContainer>
+                            </div>
+                            <div className="flex justify-center gap-4 text-sm">
+                                {riskData.map(d => <div key={d.name} className="flex items-center gap-1"><span className="w-3 h-3 rounded-full" style={{backgroundColor: d.color}}></span>{d.name}</div>)}
+                            </div>
+                        </div>
+                        <div className="glass-card p-6 rounded-2xl">
+                            <h3 className="font-bold text-slate-700 mb-4">Export Options</h3>
+                            <div className="space-y-3">
+                                <button className="w-full p-4 border border-slate-200 rounded-xl flex items-center justify-between hover:bg-slate-50">
+                                    <div className="flex items-center gap-3"><div className="p-2 bg-green-100 text-green-600 rounded-lg"><Icon name="file-spreadsheet" /></div> <span>Semester_Summary.xlsx</span></div>
+                                    <Icon name="download" size={16} />
+                                </button>
+                                <button className="w-full p-4 border border-slate-200 rounded-xl flex items-center justify-between hover:bg-slate-50">
+                                    <div className="flex items-center gap-3"><div className="p-2 bg-red-100 text-red-600 rounded-lg"><Icon name="file-warning" /></div> <span>Risk_Analysis.pdf</span></div>
+                                    <Icon name="download" size={16} />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const StatCard = ({ label, value, subtext, icon, color, trend }) => (
+            <motion.div whileHover={{ y: -5 }} className="glass-card p-6 rounded-2xl relative overflow-hidden">
+                <div className="flex justify-between items-start z-10 relative">
+                    <div>
+                        <div className="text-slate-500 text-sm font-medium mb-1">{label}</div>
+                        <div className="text-3xl font-bold text-slate-800">{value}</div>
+                        <div className={`text-xs mt-2 font-medium flex items-center gap-1 ${trend === 'up' ? 'text-emerald-600' : 'text-rose-600'}`}>{subtext}</div>
+                    </div>
+                    <div className={`p-3 rounded-xl bg-opacity-10 ${color.replace('text-', 'bg-').replace('600', '100')} ${color}`}><Icon name={icon} size={24} /></div>
+                </div>
+            </motion.div>
+        );
+
+        const StudentDashboard = ({ targetStudent }) => {
+            const { user } = useContext(DBContext);
+            const studentData = targetStudent || user;
+            
+            const [simAttendance, setSimAttendance] = useState(studentData.attendance);
+            const [simBacklogs, setSimBacklogs] = useState(studentData.backlogs);
+            
+            useEffect(() => {
+                setSimAttendance(studentData.attendance);
+                setSimBacklogs(studentData.backlogs);
+            }, [studentData]);
+
+            const predict = (att, bl, currentCgpa) => {
+                let base = currentCgpa + ((Math.min(att, 100)/100)*0.4) - (bl*0.15);
+                return Math.max(0, Math.min(10, base)).toFixed(2);
+            };
+
+            const predictedSGPA = predict(simAttendance, simBacklogs, studentData.cgpa);
+            const sgpaData = studentData.sgpa_history.map((s, i) => ({ name: `Sem ${i+1}`, SGPA: s }));
+            const risk = targetStudent ? determineRisk(studentData.backlogs, calculateCGPA(studentData.sgpa_history)) : studentData.risk;
+
+            const getRecommendations = (data, currentRisk) => {
+                const recs = [];
+                if (data.backlogs >= 2) {
+                    recs.push({ icon: 'alert-octagon', title: 'Critical: Clear Backlogs', text: `You have ${data.backlogs} active backlogs. Register for the remedial exam cycle immediately to avoid Year Drop.`, color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-100' });
+                } else if (data.backlogs === 1) {
+                    recs.push({ icon: 'alert-triangle', title: 'Clear Pending Paper', text: 'Schedule a meeting with the subject mentor to clear your single backlog.', color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-100' });
+                }
+                if (data.attendance < 75) {
+                    recs.push({ icon: 'clock', title: 'Attendance Warning', text: `Current attendance is ${data.attendance}%. You must attend the next 5 consecutive classes to reach the 75% eligibility threshold.`, color: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-100' });
+                }
+                if (data.backlogs === 0 && data.attendance >= 75) {
+                    recs.push({ icon: 'star', title: 'Excellent Progress', text: 'You are on track! Consider joining the Advanced Robotics Club or publishing a paper.', color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-100' });
+                }
+                if (data.cgpa < 7.0) {
+                     recs.push({ icon: 'book-open', title: 'Academic Support', text: 'Visit the library for peer tutoring sessions available Mon-Wed.', color: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-100' });
+                }
+                return recs;
+            };
+
+            const recommendations = getRecommendations(studentData, risk);
+
+            return (
+                <div className="space-y-8 p-1 animate-fade-in">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                            <h1 className="text-3xl font-bold text-slate-900">{targetStudent ? `${studentData.name}'s Overview` : "Academic Overview"}</h1>
+                            <p className="text-slate-500">ID: {studentData.roll_no} • Track progress and predict outcomes.</p>
+                        </div>
+                        <div className={`px-4 py-2 rounded-full border flex items-center gap-2 ${risk.bg} ${risk.border} ${risk.color}`}><Icon name={risk.icon} /><span className="font-bold">{risk.level}</span></div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <StatCard label="Current CGPA" value={studentData.cgpa || calculateCGPA(studentData.sgpa_history)} subtext="Cumulative Score" icon="award" color="text-indigo-600" trend="up" />
+                        <StatCard label="Attendance" value={`${studentData.attendance}%`} subtext={studentData.attendance < 75 ? "Below Requirement" : "Good Standing"} icon="calendar" color={studentData.attendance < 75 ? "text-red-600" : "text-emerald-600"} trend={studentData.attendance < 75 ? "down" : "up"} />
+                        <StatCard label="Active Backlogs" value={studentData.backlogs} subtext={studentData.backlogs > 0 ? "Needs Attention" : "All Clear"} icon="book-open" color={studentData.backlogs > 0 ? "text-amber-600" : "text-emerald-600"} trend={studentData.backlogs > 0 ? "down" : "up"} />
+                        <StatCard label="Predicted SGPA" value={predictedSGPA} subtext="Next Semester Forecast" icon="trending-up" color="text-violet-600" trend="up" />
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        <div className="lg:col-span-2 space-y-8">
+                            <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} className="glass-card p-6 rounded-2xl">
+                                <h3 className="font-bold text-lg mb-6 flex items-center gap-2"><Icon name="bar-chart-2" className="text-indigo-500" /> SGPA Progression</h3>
+                                <div className="h-72 w-full">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart data={sgpaData}>
+                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                            <XAxis dataKey="name" axisLine={false} tickLine={false} />
+                                            <YAxis domain={[0, 10]} axisLine={false} tickLine={false} />
+                                            <Tooltip contentStyle={{borderRadius:'12px', border:'none', boxShadow:'0 10px 15px -3px rgba(0,0,0,0.1)'}} />
+                                            <Bar dataKey="SGPA" fill="#6366f1" radius={[6, 6, 0, 0]} barSize={50} />
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            </motion.div>
+                            
+                            <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} transition={{delay: 0.1}} className="glass-card p-6 rounded-2xl">
+                                <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Icon name="check-square" className="text-indigo-500" /> Recommended Actions</h3>
+                                <div className="grid gap-4">
+                                    {recommendations.length > 0 ? recommendations.map((rec, idx) => (
+                                        <div key={idx} className={`p-4 rounded-xl border ${rec.bg} ${rec.border} flex items-start gap-4`}>
+                                            <div className={`p-2 rounded-lg bg-white ${rec.color}`}><Icon name={rec.icon} size={20} /></div>
+                                            <div>
+                                                <div className={`font-bold ${rec.color}`}>{rec.title}</div>
+                                                <div className="text-sm text-slate-600 mt-1">{rec.text}</div>
+                                            </div>
+                                        </div>
+                                    )) : <div className="p-4 text-slate-500">No specific recommendations at this time.</div>}
+                                </div>
+                            </motion.div>
+                        </div>
+                        
+                        <div className="space-y-8">
+                            <motion.div initial={{opacity:0, x:20}} animate={{opacity:1, x:0}} className="glass-card p-6 rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-700 text-white shadow-xl">
+                                <h3 className="font-bold text-xl mb-2">Grade Simulator</h3>
+                                <p className="text-indigo-100 text-sm mb-6">See how changes affect future results.</p>
+                                <div className="space-y-6">
+                                    <div><div className="flex justify-between text-sm font-medium mb-2"><span>Attendance Target</span><span>{simAttendance}%</span></div><input type="range" min="0" max="100" value={simAttendance} onChange={(e) => setSimAttendance(Number(e.target.value))} className="w-full h-2 bg-indigo-400 rounded-lg appearance-none cursor-pointer" /></div>
+                                    <div><div className="flex justify-between text-sm font-medium mb-2"><span>Remaining Backlogs</span><span>{simBacklogs}</span></div><input type="range" min="0" max="5" value={simBacklogs} onChange={(e) => setSimBacklogs(Number(e.target.value))} className="w-full h-2 bg-indigo-400 rounded-lg appearance-none cursor-pointer" /></div>
+                                </div>
+                                <div className="mt-8 pt-6 border-t border-indigo-500"><div className="text-indigo-200 text-sm mb-1">Predicted Next SGPA</div><div className="text-4xl font-bold">{predictedSGPA}</div></div>
+                            </motion.div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const FacultyDashboard = () => {
+            const { db, updateStudent, bulkAddStudents, setActiveTab, setSelectedStudentId } = useContext(DBContext);
+            const [search, setSearch] = useState("");
+            const [filter, setFilter] = useState("all");
+            const [editingId, setEditingId] = useState(null);
+            
+            // NEW: Upload State
+            const [isUploading, setIsUploading] = useState(false);
+            const fileInputRef = useRef(null);
+            
+            const students = Object.values(db);
+            const filteredStudents = students.filter(s => {
+                const matches = s.name.toLowerCase().includes(search.toLowerCase()) || s.roll_no.includes(search);
+                if (filter === "risk") {
+                    const cgpa = calculateCGPA(s.sgpa_history);
+                    return matches && determineRisk(s.backlogs, cgpa).level === "High Risk";
+                }
+                return matches;
+            }).sort((a,b) => parseInt(a.roll_no) - parseInt(b.roll_no));
+
+            // NEW: Handle Upload Logic
+            const handleFileUpload = (e) => {
+                const file = e.target.files[0];
+                if(!file) return;
+
+                setIsUploading(true);
+                
+                // Simulate Server Processing Delay (2 Seconds)
+                setTimeout(() => {
+                    // Create Dummy Injected Data
+                    const mockUploadData = {
+                        141: { ...DEFAULT_STUDENT, roll_no: "141", name: "Vihaan Das", sgpa_history: [7.2, 7.5], backlogs: 1, attendance: 78, activities: ["NSS"] },
+                        142: { ...DEFAULT_STUDENT, roll_no: "142", name: "Ishaan Verma", sgpa_history: [8.5, 8.8], backlogs: 0, attendance: 92, activities: ["Debate"] },
+                        143: { ...DEFAULT_STUDENT, roll_no: "143", name: "Ananya Gupta", sgpa_history: [6.5, 6.8], backlogs: 2, attendance: 65, activities: ["Music"] },
+                        144: { ...DEFAULT_STUDENT, roll_no: "144", name: "Rohan Mehra", sgpa_history: [9.0, 8.9], backlogs: 0, attendance: 95, activities: ["Robotics"] },
+                        145: { ...DEFAULT_STUDENT, roll_no: "145", name: "Sanya Mir", sgpa_history: [7.8, 8.1], backlogs: 0, attendance: 85, activities: ["Dance"] },
+                    };
+                    
+                    bulkAddStudents(mockUploadData);
+                    setIsUploading(false);
+                    alert("Success: 5 new records parsed and added to database.");
+                    e.target.value = null; // Reset input
+                }, 2000);
+            };
+
+            const handleViewProfile = (studentId) => {
+                setSelectedStudentId(studentId);
+                setActiveTab('student-detail');
+            };
+
+            const EditableRow = ({ student }) => {
+                const isEditing = editingId === student.roll_no;
+                const [editData, setEditData] = useState({ ...student });
+                const risk = determineRisk(student.backlogs, calculateCGPA(student.sgpa_history));
+
+                const handleSave = () => {
+                    updateStudent(student.roll_no, { attendance: parseInt(editData.attendance), backlogs: parseInt(editData.backlogs) });
+                    setEditingId(null);
+                };
+
+                if (isEditing) return (
+                    <tr className="bg-indigo-50">
+                        <td className="p-4">{student.roll_no}</td>
+                        <td className="p-4 font-medium">{student.name}</td>
+                        <td className="p-4 text-slate-500">--</td>
+                        <td className="p-4"><input type="number" className="w-16 p-1 border rounded" value={editData.backlogs} onChange={e => setEditData({...editData, backlogs: e.target.value})} /></td>
+                        <td className="p-4"><input type="number" className="w-16 p-1 border rounded" value={editData.attendance} onChange={e => setEditData({...editData, attendance: e.target.value})} /></td>
+                        <td className="p-4 flex gap-2"><button onClick={handleSave} className="text-green-600 hover:bg-green-100 p-1 rounded"><Icon name="check" /></button><button onClick={() => setEditingId(null)} className="text-red-600 hover:bg-red-100 p-1 rounded"><Icon name="x" /></button></td>
+                    </tr>
+                );
+
+                return (
+                    <tr className="hover:bg-slate-50 border-b last:border-0 transition-colors">
+                        <td className="p-4 text-slate-500">{student.roll_no}</td>
+                        <td className="p-4 font-medium text-slate-900">{student.name}</td>
+                        <td className="p-4 font-bold text-slate-700">{calculateCGPA(student.sgpa_history)}</td>
+                        <td className="p-4">{student.backlogs > 0 ? <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-bold">{student.backlogs}</span> : <span className="text-slate-400">-</span>}</td>
+                        <td className="p-4"><div className="flex items-center gap-2"><div className="w-16 bg-slate-200 rounded-full h-1.5"><div className={`h-1.5 rounded-full ${student.attendance < 75 ? 'bg-red-500' : 'bg-emerald-500'}`} style={{width: `${student.attendance}%`}}></div></div><span className="text-xs">{student.attendance}%</span></div></td>
+                        <td className="p-4"><span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border ${risk.bg} ${risk.color} ${risk.border}`}>{risk.level === "High Risk" && <Icon name="alert-triangle" size={12} />}{risk.level}</span></td>
+                        <td className="p-4 text-right flex justify-end gap-2">
+                            <button onClick={() => handleViewProfile(student.roll_no)} title="View Profile" className="text-slate-500 hover:bg-slate-100 p-2 rounded-lg"><Icon name="eye" size={16} /></button>
+                            <button onClick={() => {setEditData(student); setEditingId(student.roll_no)}} title="Edit" className="text-indigo-600 hover:bg-indigo-50 p-2 rounded-lg"><Icon name="edit-2" size={16} /></button>
+                        </td>
+                    </tr>
+                );
+            };
+
+            return (
+                <div className="space-y-8 animate-fade-in relative">
+                    {/* Processing Overlay */}
+                    {isUploading && (
+                        <div className="absolute inset-0 bg-white/80 z-50 flex items-center justify-center rounded-xl backdrop-blur-sm">
+                            <div className="text-center">
+                                <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full spinner mx-auto mb-4"></div>
+                                <h3 className="text-lg font-bold text-indigo-700">Processing Excel Data...</h3>
+                                <p className="text-sm text-slate-500">Parsing rows and calculating risk scores</p>
+                            </div>
+                        </div>
+                    )}
+
+                    <h1 className="text-3xl font-bold text-slate-900 mb-2">Faculty Dashboard</h1>
+                    <div className="glass-card p-6 rounded-2xl">
+                        <div className="flex flex-col md:flex-row justify-between gap-4 mb-6">
+                            <div className="relative w-full md:w-96"><Icon name="search" className="absolute left-3 top-3 text-slate-400" /><input className="w-full pl-10 pr-4 py-2 border rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} /></div>
+                            <div className="flex gap-2">
+                                {/* NEW: Upload Button */}
+                                <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx,.xls" onChange={handleFileUpload} />
+                                <button onClick={() => fileInputRef.current.click()} className="px-4 py-2 rounded-xl text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-2"><Icon name="upload-cloud" size={16} /> Upload Data</button>
+                                
+                                <button onClick={() => setFilter("all")} className={`px-4 py-2 rounded-xl text-sm font-medium ${filter === 'all' ? 'bg-indigo-600 text-white' : 'bg-white border'}`}>All</button>
+                                <button onClick={() => setFilter("risk")} className={`px-4 py-2 rounded-xl text-sm font-medium ${filter === 'risk' ? 'bg-red-600 text-white' : 'bg-white border'}`}>High Risk</button>
+                            </div>
+                        </div>
+                        <div className="overflow-x-auto"><table className="w-full text-left border-collapse"><thead><tr className="text-xs font-bold text-slate-500 uppercase tracking-wider border-b"><th className="p-4">Roll</th><th className="p-4">Name</th><th className="p-4">CGPA</th><th className="p-4">Backlogs</th><th className="p-4">Attendance</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody>{filteredStudents.map(s => <EditableRow key={s.roll_no} student={s} />)}</tbody></table></div>
+                    </div>
+                </div>
+            );
+        };
+
+        const AppShell = () => {
+            const { user, login, activeTab, setActiveTab, db, selectedStudentId } = useContext(DBContext);
+            const [rollInput, setRollInput] = useState("");
+            const [loading, setLoading] = useState(false);
+
+            const handleLogin = (e) => {
+                e.preventDefault();
+                setLoading(true);
+                setTimeout(() => { if (!login(rollInput)) alert("Try 100 or 101"); setLoading(false); }, 800);
+            };
+
+            if (!user) return (
+                <div className="min-h-screen flex items-center justify-center relative overflow-hidden bg-slate-50">
+                    <div className="absolute inset-0"><div className="absolute top-[-10%] right-[-5%] w-[500px] h-[500px] bg-indigo-200 rounded-full blur-3xl opacity-30 animate-pulse"></div></div>
+                    <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="glass-card p-10 rounded-3xl w-full max-w-md relative z-10 text-center">
+                        <div className="w-16 h-16 bg-indigo-600 text-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg"><Icon name="graduation-cap" size={32} /></div>
+                        <h2 className="text-3xl font-bold text-slate-900 mb-2">EduAnalytics</h2>
+                        <p className="text-slate-500 mb-8">Academic Performance System</p>
+                        <form onSubmit={handleLogin} className="space-y-4">
+                            <div className="relative"><Icon name="user" className="absolute left-4 top-4 text-slate-400" /><input type="text" placeholder="Roll Number (100, 101, 104)" className="w-full pl-12 pr-4 py-3.5 border rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={rollInput} onChange={e => setRollInput(e.target.value)} /></div>
+                            <button disabled={loading} className="w-full py-3.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 flex items-center justify-center gap-2">{loading ? <Icon name="loader" className="animate-spin" /> : "Login"}</button>
+                        </form>
+                    </motion.div>
+                </div>
+            );
+
+            // --- ROUTER LOGIC ---
+            const renderContent = () => {
+                if (activeTab === 'dashboard') {
+                    return user.isAdmin ? <FacultyDashboard /> : <StudentDashboard />;
+                }
+                if (activeTab === 'schedule') {
+                    // Logic: Admins see all, Students see based on their backlog status
+                    const isBacklog = !user.isAdmin && user.backlogs > 0;
+                    return <ScheduleView isBacklog={isBacklog} />;
+                }
+                if (activeTab === 'reports') {
+                    return <ReportsView db={db} />;
+                }
+                if (activeTab === 'student-detail') {
+                    // Reuse Student Dashboard for Admin Drill-down
+                    const target = db[selectedStudentId];
+                    return (
+                        <div>
+                            <button onClick={() => setActiveTab('dashboard')} className="mb-4 flex items-center gap-2 text-slate-500 hover:text-indigo-600 font-medium">
+                                <Icon name="arrow-left" size={18} /> Back to List
+                            </button>
+                            <StudentDashboard targetStudent={target} />
+                        </div>
+                    );
+                }
+                return null;
+            };
+
+            return (
+                <div className="flex h-screen overflow-hidden">
+                    <Sidebar />
+                    <main className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-50">
+                        <div className="max-w-7xl mx-auto">
+                            {renderContent()}
+                        </div>
+                    </main>
+                </div>
+            );
+        };
+
+        const App = () => (<DBProvider><AppShell /></DBProvider>);
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
