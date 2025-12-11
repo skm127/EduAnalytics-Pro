@@ -1,2 +1,5 @@
 # EduAnalytics-Pro
  EduAnalytics is a full-stack data analysis system designed to automate student performance tracking and replace manual Excel processing. Built using a Python (Flask, Pandas, NumPy) backend for robust data processing and a React/Tailwind CSS frontend for interactive visualization , the system analyzes academic records to calculate progress trends and assess student risk levels (Low, Medium, High) based on backlogs. Key features include a real-time dashboard with predictive grade simulation, automated alert generation for "at-risk" students, and comprehensive reporting tools to help faculty make data-driven academic decisions.
+this project was made by Shubhendu kumar mishra
+                         Punyashlok Barik 
+                         Prince Meher 
